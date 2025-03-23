@@ -129,13 +129,61 @@ export const updateProductPrices = createAsyncThunk(
   }
 );
 
+// New thunk for price scraping
+export const scrapePrices = createAsyncThunk(
+  'products/scrapePrices',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const state = getState();
+      const products = state.products.items;
+      
+      const response = await fetch('/api/scrape-prices', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ products }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to scrape prices');
+      }
+      
+      const scrapedData = await response.json();
+      
+      // If there are price changes, send email notification
+      if (scrapedData.priceChanges && scrapedData.priceChanges.length > 0) {
+        await fetch('/api/send-price-notification', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ priceChanges: scrapedData.priceChanges }),
+        });
+      }
+      
+      return scrapedData;
+    } catch (error) {
+      console.error('Error scraping prices:', error);
+      return rejectWithValue(error.message);
+    }
+  }
+);
+
 const productSlice = createSlice({
   name: 'products',
   initialState: {
     items: [],
     loading: false,
     error: null,
-    lastUpdated: null
+    lastUpdated: null,
+    scrapeProgress: {
+      total: 0,
+      completed: 0,
+      inProgress: false,
+      priceChanges: [],
+      completedProducts: []
+    }
   },
   reducers: {
     addProduct: (state, action) => {
@@ -152,6 +200,21 @@ const productSlice = createSlice({
     },
     removeProduct: (state, action) => {
       state.items = state.items.filter(product => product.id !== action.payload);
+    },
+    updateScrapeProgress: (state, action) => {
+      state.scrapeProgress = {
+        ...state.scrapeProgress,
+        ...action.payload
+      };
+    },
+    resetScrapeProgress: (state) => {
+      state.scrapeProgress = {
+        total: 0,
+        completed: 0,
+        inProgress: false,
+        priceChanges: [],
+        completedProducts: []
+      };
     }
   },
   extraReducers: (builder) => {
@@ -211,9 +274,56 @@ const productSlice = createSlice({
       .addCase(updateProductPrices.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
+      })
+      // Handle scrapePrices states
+      .addCase(scrapePrices.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.scrapeProgress.inProgress = true;
+        state.scrapeProgress.total = state.items.length;
+        state.scrapeProgress.completed = 0;
+        state.scrapeProgress.priceChanges = [];
+        state.scrapeProgress.completedProducts = [];
+      })
+      .addCase(scrapePrices.fulfilled, (state, action) => {
+        state.loading = false;
+        
+        // Update products with new prices
+        action.payload.updatedProducts.forEach(updatedProduct => {
+          const index = state.items.findIndex(item => item.id === updatedProduct.id);
+          if (index !== -1) {
+            // Add to price history
+            if (state.items[index].currentPrice !== updatedProduct.newPrice) {
+              state.items[index].priceHistory = [
+                ...(state.items[index].priceHistory || []),
+                {
+                  price: updatedProduct.newPrice,
+                  date: new Date().toISOString(), 
+                }
+              ];
+            }
+            
+            // Update current price to match new price
+            state.items[index].currentPrice = updatedProduct.newPrice;
+            state.items[index].newPrice = updatedProduct.newPrice;
+            state.items[index].lastChecked = new Date().toISOString();
+            state.items[index].isOnOffer = updatedProduct.isOnOffer;
+            state.items[index].originalPrice = updatedProduct.originalPrice;
+          }
+        });
+        
+        state.scrapeProgress.inProgress = false;
+        state.scrapeProgress.completed = state.items.length;
+        state.scrapeProgress.priceChanges = action.payload.priceChanges || [];
+        state.lastUpdated = new Date().toISOString();
+      })
+      .addCase(scrapePrices.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+        state.scrapeProgress.inProgress = false;
       });
   }
 });
 
-export const { addProduct, removeProduct } = productSlice.actions;
+export const { addProduct, removeProduct, updateScrapeProgress, resetScrapeProgress } = productSlice.actions;
 export default productSlice.reducer;
