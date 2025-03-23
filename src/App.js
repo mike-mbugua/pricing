@@ -1,24 +1,25 @@
-import logo from './logo.svg';
-import './App.css';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import Navbar from '../src/navBar';
+import StorePage from '../src/dashboard/store';
+import CreateProduct from '../src/dashboard/createProduct';
+import CarrefourPage from './carrefour/page';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Router>
+      <div className="min-h-screen bg-gray-800 text-white">
+        <Navbar />
+        <div className="container mx-auto pt-4">
+          <Routes>
+            <Route path="/" element={<Navigate to="/store" />} />
+            <Route path="/store/:storeName" element={<StorePage />} />            
+            <Route path="/store/:storeName/create" element={<CreateProduct />} />
+            <Route path="/store/:storeName/view" element={<CarrefourPage /> }/>
+          </Routes>
+        </div>
+      </div>
+    </Router>
   );
 }
 
